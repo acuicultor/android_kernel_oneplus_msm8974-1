@@ -82,21 +82,19 @@ static void _suspend_work(struct work_struct *work)
 {
 	state_suspended = true;
 	state_notifier_call_chain(STATE_NOTIFIER_SUSPEND, NULL);
-	suspend_in_progress = false;
-	dprintk("%s: suspend completed.\n", STATE_NOTIFIER);
+	state_suspended = true;
 }
 
 static void _resume_work(struct work_struct *work)
 {
 	state_suspended = false;
 	state_notifier_call_chain(STATE_NOTIFIER_ACTIVE, NULL);
-	dprintk("%s: resume completed.\n", STATE_NOTIFIER);
+	state_suspended = false;
 }
 
 void state_suspend(void)
 {
-	dprintk("%s: suspend called.\n", STATE_NOTIFIER);
-	if (state_suspended || suspend_in_progress)
+	if (state_suspended)
 		return;
 
 	suspend_in_progress = true;

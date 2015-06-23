@@ -2388,6 +2388,7 @@ static void synaptics_rmi4_sensor_wake(struct synaptics_rmi4_data *rmi4_data)
 static void synaptics_rmi4_suspend(struct synaptics_rmi4_data *rmi4_data)
 {
 	synaptics_rmi4_irq_enable(rmi4_data, false);
+        synaptics_rmi4_free_fingers(rmi4_data);  
 
 	atomic_set(&rmi4_data->syna_use_gesture,
 			atomic_read(&rmi4_data->double_tap_enable) ||
