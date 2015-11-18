@@ -797,7 +797,7 @@ static int synaptics_rmi4_proc_sweep_wake_write(struct file *filp, const char __
 		return 0;
 
 	if (copy_from_user(buf, buff, len)) {
-		print_ts(TS_DEBUG, KERN_ERR "Read proc input error.\n");
+                pr_debug("Read proc input error.\n");
 		return -EFAULT;
 	}
 
