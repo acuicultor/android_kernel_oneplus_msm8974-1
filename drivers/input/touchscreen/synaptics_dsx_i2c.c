@@ -781,6 +781,33 @@ static int synaptics_rmi4_proc_flashlight_write(struct file *filp, const char __
 	return len;
 }
 
+static int synaptics_rmi4_proc_sweep_wake_read(char *page, char **start, off_t off,
+		int count, int *eof, void *data)
+{
+	return sprintf(page, "%d\n", atomic_read(&syna_rmi4_data->sweep_wake_enable));
+}
+
+static int synaptics_rmi4_proc_sweep_wake_write(struct file *filp, const char __user *buff,
+		unsigned long len, void *data)
+{
+	int enable;
+	char buf[2];
+
+	if (len > 2)
+		return 0;
+
+	if (copy_from_user(buf, buff, len)) {
+		print_ts(TS_DEBUG, KERN_ERR "Read proc input error.\n");
+		return -EFAULT;
+	}
+
+	enable = (buf[0] == '0') ? 0 : 1;
+
+	atomic_set(&syna_rmi4_data->sweep_wake_enable, enable);
+
+	return len;
+}
+
 static int keypad_enable_proc_read(char *page, char **start, off_t off,
 		int count, int *eof, void *data)
 {
@@ -850,6 +877,13 @@ static int synaptics_rmi4_init_touchpanel_proc(void)
 	if (proc_entry) {
 		proc_entry->write_proc = synaptics_rmi4_proc_flashlight_write;
 		proc_entry->read_proc = synaptics_rmi4_proc_flashlight_read;
+	}
+
+	// sweep wake
+	proc_entry = create_proc_entry("sweep_wake_enable", 0664, procdir);
+	if (proc_entry) {
+		proc_entry->write_proc = synaptics_rmi4_proc_sweep_wake_write;
+		proc_entry->read_proc = synaptics_rmi4_proc_sweep_wake_read;
 	}
 
 	proc_entry = create_proc_entry("keypad_enable", 0664, procdir);
@@ -983,6 +1017,11 @@ static unsigned char synaptics_rmi4_update_gesture2(unsigned char *gesture,
 				(gestureext[24] == 0x48) ? Down2UpSwip      :
 				(gestureext[24] == 0x80) ? DouSwip          :
 				UnknownGesture;
+			if (gesturemode == Left2RightSwip ||
+					gesturemode == Right2LeftSwip) {
+				if (atomic_read(&syna_rmi4_data->sweep_wake_enable))
+					keyvalue = KEY_SWEEP_WAKE;
+			}
 			if (gesturemode == DouSwip ||
 					gesturemode == Down2UpSwip ||
 					gesturemode == Up2DownSwip) {
@@ -1910,6 +1949,7 @@ static void synaptics_rmi4_set_params(struct synaptics_rmi4_data *rmi4_data)
 	set_bit(KEY_GESTURE_CIRCLE, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_SWIPE_DOWN, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_V, rmi4_data->input_dev->keybit);
+        set_bit(KEY_SWEEP_WAKE, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_LTR, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_GTR, rmi4_data->input_dev->keybit);
 	synaptics_ts_init_virtual_key(rmi4_data);
@@ -1966,6 +2006,7 @@ static int synaptics_rmi4_set_input_dev(struct synaptics_rmi4_data *rmi4_data)
 	atomic_set(&rmi4_data->camera_enable, 0);
 	atomic_set(&rmi4_data->music_enable, 0);
 	atomic_set(&rmi4_data->flashlight_enable, 0);
+        atomic_set(&rmi4_data->sweep_wake_enable, 0);
 
 	set_bit(INPUT_PROP_DIRECT, rmi4_data->input_dev->propbit);
 
@@ -2346,7 +2387,13 @@ static void synaptics_rmi4_sensor_wake(struct synaptics_rmi4_data *rmi4_data)
 static void synaptics_rmi4_suspend(struct synaptics_rmi4_data *rmi4_data)
 {
 	synaptics_rmi4_irq_enable(rmi4_data, false);
-	synaptics_rmi4_free_fingers(rmi4_data);
+
+	atomic_set(&rmi4_data->syna_use_gesture,
+			atomic_read(&rmi4_data->double_tap_enable) ||
+			atomic_read(&rmi4_data->camera_enable) ||
+			atomic_read(&rmi4_data->music_enable) ||
+			atomic_read(&rmi4_data->flashlight_enable) ||
+                        atomic_read(&rmi4_data->sweep_wake_enable) ? 1 : 0);
 
 	if (atomic_read(&rmi4_data->syna_use_gesture)) {
 		synaptics_enable_gesture(rmi4_data, true);
@@ -2382,6 +2429,16 @@ static void synaptics_rmi4_resume(struct synaptics_rmi4_data *rmi4_data)
 		synaptics_rmi4_sensor_wake(rmi4_data);
 		synaptics_rmi4_reinit_device(rmi4_data);
 	}
+
+	synaptics_rmi4_sensor_wake(rmi4_data);
+	synaptics_rmi4_reinit_device(rmi4_data);
+
+	atomic_set(&rmi4_data->syna_use_gesture,
+			atomic_read(&rmi4_data->double_tap_enable) ||
+			atomic_read(&rmi4_data->camera_enable) ||
+			atomic_read(&rmi4_data->music_enable) ||
+			atomic_read(&rmi4_data->flashlight_enable) ||
+                        atomic_read(&rmi4_data->sweep_wake_enable) ? 1 : 0);
 
 	synaptics_rmi4_irq_enable(rmi4_data, true);
 	atomic_set(&rmi4_data->ts_awake, 1);
