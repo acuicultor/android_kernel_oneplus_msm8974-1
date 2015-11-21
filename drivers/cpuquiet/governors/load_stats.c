@@ -24,6 +24,7 @@
 #include <linux/kthread.h>
 #include <linux/kernel_stat.h>
 #include <linux/tick.h>
+#include <linux/cpufreq.h>
 
 // from cpuquiet_driver.c
 extern unsigned int cpq_max_cpus(void);
@@ -87,39 +88,6 @@ static bool log_hotplugging = false;
 	if (log_hotplugging) pr_info("[LOAD_STATS]: " msg); \
 	} while (0)
 
-static inline u64 get_cpu_idle_time_jiffy(unsigned int cpu, u64 *wall)
-{
-	u64 idle_time;
-	u64 cur_wall_time;
-	u64 busy_time;
-
-	cur_wall_time = jiffies64_to_cputime64(get_jiffies_64());
-
-	busy_time  = kcpustat_cpu(cpu).cpustat[CPUTIME_USER];
-	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SYSTEM];
-	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_IRQ];
-	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_SOFTIRQ];
-	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_STEAL];
-	busy_time += kcpustat_cpu(cpu).cpustat[CPUTIME_NICE];
-
-	idle_time = cur_wall_time - busy_time;
-	if (wall)
-		*wall = jiffies_to_usecs(cur_wall_time);
-
-	return jiffies_to_usecs(idle_time);
-}
-
-static inline u64 get_cpu_idle_time(unsigned int cpu, u64 *wall)
-{
-	u64 idle_time = get_cpu_idle_time_us(cpu, NULL);
-
-	if (idle_time == -1ULL)
-		return get_cpu_idle_time_jiffy(cpu, wall);
-	else
-		idle_time += get_cpu_iowait_time_us(cpu, wall);
-
-	return idle_time;
-}
 
 static inline u64 get_cpu_iowait_time(unsigned int cpu,
 							u64 *wall)
@@ -138,7 +106,7 @@ static unsigned int calc_cur_load(unsigned int cpu)
 	u64 cur_wall_time, cur_idle_time, cur_iowait_time;
 	unsigned int idle_time, wall_time, iowait_time;
 
-	cur_idle_time = get_cpu_idle_time(cpu, &cur_wall_time);
+	cur_idle_time = get_cpu_idle_time(cpu, &cur_wall_time, 0);
 	cur_iowait_time = get_cpu_iowait_time(cpu, &cur_wall_time);
 
 	wall_time = (unsigned int) (cur_wall_time - pcpu->prev_cpu_wall);
@@ -175,12 +143,12 @@ static unsigned int report_load(void)
 {
 	int cpu;
 	unsigned int cur_load = 0;
-	
+
 	for_each_online_cpu(cpu) {
 		cur_load += calc_cur_load(cpu);
 	}
 	cur_load /= num_online_cpus();
-  	
+
 	return cur_load;
 }
 
@@ -229,7 +197,6 @@ static void update_load_stats_state(void)
 	}
 	total_time += this_time;
 	load = report_load();
-	rq_depth = get_rq_info();
 	nr_cpu_online = num_online_cpus();
 	load_stats_state = IDLE;
 
@@ -237,17 +204,17 @@ static void update_load_stats_state(void)
 		index = (nr_cpu_online - 1) * 2;
 		if ((nr_cpu_online < CONFIG_NR_CPUS) && (load >= load_threshold[index])) {
 			if (total_time >= twts_threshold[index]) {
-           		if (nr_cpu_online < max_cpus){
-           			hotplug_info("UP load=%d total_time=%lld load_threshold[index]=%d twts_threshold[index]=%d nr_cpu_online=%d min_cpus=%d max_cpus=%d\n", load, total_time, load_threshold[index], twts_threshold[index], nr_cpu_online, min_cpus, max_cpus);
-           	    	load_stats_state = UP;
-           	    }
+				if (nr_cpu_online < max_cpus){
+					hotplug_info("UP load=%d total_time=%lld load_threshold[index]=%d twts_threshold[index]=%d nr_cpu_online=%d min_cpus=%d max_cpus=%d\n", load, total_time, load_threshold[index], twts_threshold[index], nr_cpu_online, min_cpus, max_cpus);
+					load_stats_state = UP;
+				}
 			}
 		} else if (load <= load_threshold[index+1]) {
 			if (total_time >= twts_threshold[index+1] ) {
-           		if ((nr_cpu_online > 1) && (nr_cpu_online > min_cpus)){
-           			hotplug_info("DOWN load=%d total_time=%lld load_threshold[index+1]=%d twts_threshold[index+1]=%d nr_cpu_online=%d min_cpus=%d max_cpus=%d\n", load, total_time, load_threshold[index+1], twts_threshold[index+1], nr_cpu_online, min_cpus, max_cpus);
-                   	load_stats_state = DOWN;
-                }
+				if ((nr_cpu_online > 1) && (nr_cpu_online > min_cpus)){
+					hotplug_info("DOWN load=%d total_time=%lld load_threshold[index+1]=%d twts_threshold[index+1]=%d nr_cpu_online=%d min_cpus=%d max_cpus=%d\n", load, total_time, load_threshold[index+1], twts_threshold[index+1], nr_cpu_online, min_cpus, max_cpus);
+					load_stats_state = DOWN;
+				}
 			}
 		} else {
 			load_stats_state = IDLE;
@@ -257,13 +224,15 @@ static void update_load_stats_state(void)
 		total_time = 0;
 	}
 
-	if (rq_depth > rq_depth_threshold 
-			&& load < rq_depth_load_threshold 
-			&& nr_cpu_online < rq_depth_cpus_threshold 
-			&& load_stats_state != UP 
+	if (load_stats_state != UP
+			&& nr_cpu_online < rq_depth_cpus_threshold
 			&& nr_cpu_online < max_cpus){
-		hotplug_info("UP because of rq_depth %d load %d\n", rq_depth, load);
-		load_stats_state = UP;
+		rq_depth = get_rq_info();
+		if (rq_depth > rq_depth_threshold
+				&& load < rq_depth_load_threshold){
+			hotplug_info("UP because of rq_depth %d load %d\n", rq_depth, load);
+			load_stats_state = UP;
+		}
 	}
 
 	if (input_boost_running && current_time > input_boost_end_time)
@@ -381,7 +350,7 @@ static int load_stats_boost_task(void *data) {
 static ssize_t show_twts_threshold(struct cpuquiet_attribute *cattr, char *buf)
 {
 	char *out = buf;
-		
+
 	out += sprintf(out, "%u %u %u %u %u %u %u %u\n", twts_threshold[0], twts_threshold[1], twts_threshold[2], twts_threshold[3], 
 	    twts_threshold[4], twts_threshold[5], twts_threshold[6], twts_threshold[7]);
 
@@ -407,14 +376,14 @@ static ssize_t store_twts_threshold(struct cpuquiet_attribute *cattr,
 
 	for (i = 0; i < 8; i++)
 		twts_threshold[i]=user_twts_threshold[i];
-            
+
 	return count;
 }
 
 static ssize_t show_load_threshold(struct cpuquiet_attribute *cattr, char *buf)
 {
 	char *out = buf;
-		
+
 	out += sprintf(out, "%u %u %u %u %u %u %u %u\n", load_threshold[0], load_threshold[1], load_threshold[2], load_threshold[3], 
 	    load_threshold[4], load_threshold[5], load_threshold[6], load_threshold[7]);
 
@@ -440,14 +409,14 @@ static ssize_t store_load_threshold(struct cpuquiet_attribute *cattr,
 
 	for (i = 0; i < 8; i++)
 		load_threshold[i]=user_load_threshold[i];
-            
+
 	return count;
 }
 
 static ssize_t show_log_hotplugging(struct cpuquiet_attribute *cattr, char *buf)
 {
 	char *out = buf;
-		
+
 	out += sprintf(out, "%d\n", log_hotplugging);
 
 	return out - buf;
