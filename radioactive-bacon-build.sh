@@ -15,13 +15,13 @@ DTBIMAGE="dtb"
 DEFCONFIG="radioactive_defconfig"
 
 # Kernel Details
-BASE_AK_VER="RADIOACTIVE"
-VER="RADIOACTIVE_AOSP_Marshmallow_V1.5"
+BASE_RADIOACTIVE_VER="RADIOACTIVE"
+VER="_AOSP_Marshmallow_V1.7"
 RADIOACTIVE_VER="$BASE_RADIOACTIVE_VER$VER"
 
 # Vars
 export LOCALVERSION=~`echo $RADIOACTIVE_VER`
-export CROSS_COMPILE=${HOME}/Android/toolchains/uber5.2-cortex-a15/bin/arm-eabi-
+export CROSS_COMPILE=${HOME}/Android/toolchains/uber5.2/bin/arm-eabi-
 export ARCH=arm
 export SUBARCH=arm
 export KBUILD_BUILD_USER=R.Cuenca
@@ -66,8 +66,8 @@ function make_dtb {
 
 function make_zip {
 		cd $REPACK_DIR
-		zip -r9 `echo $AK_VER`.zip *
-		mv  `echo $AK_VER`.zip $ZIP_MOVE
+		zip -r9 `echo $RADIOACTIVE_VER`.zip *
+		mv  `echo $RADIOACTIVE_VER`.zip $ZIP_MOVE
 		cd $KERNEL_DIR
 }
 
@@ -88,7 +88,7 @@ echo "---------------"
 echo "Kernel Version:"
 echo "---------------"
 
-echo -e "${red}"; echo -e "${blink_red}"; echo "$AK_VER"; echo -e "${restore}";
+echo -e "${red}"; echo -e "${blink_red}"; echo "$RADIOACTIVE_VER"; echo -e "${restore}";
 
 echo -e "${green}"
 echo "-----------------"

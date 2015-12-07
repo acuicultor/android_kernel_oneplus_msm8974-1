@@ -3764,7 +3764,6 @@ static void venus_hfi_unload_fw(void *dev)
 
 		if (device->state != VENUS_STATE_DEINIT)
 			flush_workqueue(device->vidc_workq);
-
 		flush_workqueue(device->venus_pm_workq);
 		subsystem_put(device->resources.fw.cookie);
 		venus_hfi_interface_queues_release(dev);

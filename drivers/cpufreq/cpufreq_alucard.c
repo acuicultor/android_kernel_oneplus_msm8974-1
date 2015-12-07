@@ -36,9 +36,9 @@
 
 /* Tuning Interface */
 #ifdef CONFIG_MACH_LGE
-#define FREQ_RESPONSIVENESS		2457600
+#define FREQ_RESPONSIVENESS		2265600
 #else
-#define FREQ_RESPONSIVENESS		1036800
+#define FREQ_RESPONSIVENESS		1134000
 #endif
 
 #define CPUS_DOWN_RATE			2
@@ -580,7 +580,7 @@ static void do_alucard_timer(struct work_struct *work)
 	if (delay <= 0)
 		delay = usecs_to_jiffies(MIN_SAMPLING_RATE);
 
-	queue_delayed_work_on(cpu, system_wq, &alucard_cpuinfo->work, delay);
+	mod_delayed_work_on(cpu, system_wq, &alucard_cpuinfo->work, delay);
 
 	mutex_unlock(&alucard_cpuinfo->timer_mutex);
 }
@@ -651,7 +651,7 @@ static int cpufreq_governor_alucard(struct cpufreq_policy *policy,
 
 		INIT_DELAYED_WORK_DEFERRABLE(&this_alucard_cpuinfo->work, do_alucard_timer);
 
-		queue_delayed_work_on(this_alucard_cpuinfo->cpu, system_wq, &this_alucard_cpuinfo->work, delay);
+		mod_delayed_work_on(this_alucard_cpuinfo->cpu, system_wq, &this_alucard_cpuinfo->work, delay);
 
 		break;
 
