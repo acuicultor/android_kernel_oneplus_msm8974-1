@@ -804,6 +804,7 @@ static int synaptics_rmi4_proc_sweep_wake_write(struct file *filp, const char __
 	enable = (buf[0] == '0') ? 0 : 1;
 
 	atomic_set(&syna_rmi4_data->sweep_wake_enable, enable);
+        synaptics_update_gesture_status(syna_rmi4_data);
 
 	return len;
 }
