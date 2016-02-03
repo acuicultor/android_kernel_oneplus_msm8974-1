@@ -254,7 +254,7 @@
 #define POWER_STAGE_WA			BIT(2)
 /* OPPO 2013-06-08 wangjc Add begin for add macro. */
 #ifdef CONFIG_MACH_MSM8974_14001
-#define BATT_HEARTBEAT_INTERVAL					6000//6S
+#define BATT_HEARTBEAT_INTERVAL					40000//40S
 #define BATT_CHG_TIMEOUT_COUNT_DCP				10*10*60//sjc1125//6*10*60//4	//6HOURS
 #define BATT_CHG_TIMEOUT_COUNT_USB_PRO			10*10*60 //10HOURS
 #define BATT_CHG_DONE_CHECK_COUNT				10//TIMES
@@ -563,6 +563,10 @@ extern void mcu_en_gpio_set(int value);//sjc0623 add
 
 static void
 qpnp_chg_set_appropriate_battery_current(struct qpnp_chg_chip *chip);
+
+#ifdef CONFIG_BQ24196_CHARGER
+extern void bq24196_wait_for_resume(void);
+#endif
 
 static struct of_device_id qpnp_charger_match_table[] = {
 	{ .compatible = QPNP_CHARGER_DEV_NAME, },
@@ -1971,12 +1975,7 @@ get_prop_battery_fcc(struct qpnp_chg_chip *chip)//sjc20150105
 static int
 get_prop_authenticate(struct qpnp_chg_chip *chip)
 {
-	if (qpnp_batt_gauge && qpnp_batt_gauge->is_battery_authenticated)
-		return qpnp_batt_gauge->is_battery_authenticated();
-	else {
-		pr_err("qpnp-charger no batt gauge assuming false\n");
-		return false;
-	}
+	return true;
 }
 #endif /*CONFIG_BATTERY_BQ27541*/
 
@@ -1985,12 +1984,7 @@ get_prop_authenticate(struct qpnp_chg_chip *chip)
 static int
 get_prop_fast_chg_started(struct qpnp_chg_chip *chip)
 {
-	if (qpnp_batt_gauge && qpnp_batt_gauge->fast_chg_started)
-		return qpnp_batt_gauge->fast_chg_started();
-	else {
-		pr_err("qpnp-charger no batt gauge assuming false\n");
-		return false;
-	}
+	return false;
 }
 
 static int
@@ -3484,7 +3478,7 @@ get_prop_batt_status(struct qpnp_chg_chip *chip)
 	}
 }
 
-int get_charging_status(void)//sjc20150104
+int qpnp_get_charging_status(void)//sjc20150104
 {
 	if (!g_chip) 
 		return POWER_SUPPLY_STATUS_DISCHARGING;
@@ -3737,6 +3731,9 @@ qpnp_batt_external_power_changed(struct power_supply *psy)
 		pr_info("%s chg done\n",__func__);
 		return ;
 	}	
+
+	/* Wait until I2C bus is active */
+	bq24196_wait_for_resume();
 #endif
 /*OPPO 2013-10-24 liaofuchun add end*/
 	if (!chip->bms_psy)
@@ -4451,6 +4448,12 @@ static void qpnp_chg_ext_charger_hwinit(struct qpnp_chg_chip *chip)
 		return ;
 	}
 #endif
+
+#ifdef CONFIG_BQ24196_CHARGER
+	/* Wait until I2C bus is active */
+	bq24196_wait_for_resume();
+#endif
+
 /* OPPO 2014-05-21 liaofuchun modify end*/
 
 /* OPPO 2014-03-11 sjc Modify begin for OTG Vbus problem */
@@ -6704,7 +6707,7 @@ static int set_prop_batt_health(struct qpnp_chg_chip *chip, int batt_health)
 #define MAX_COUNT	50
 #ifdef CONFIG_MACH_MSM8974_14001
 /* jingchun.wang@Onlinerd.Driver, 2014/01/02  Add for set soft aicl voltage to 4.4v */
-#define SOFT_AICL_VOL	4500
+#define SOFT_AICL_VOL	4390
 #endif /*CONFIG_MACH_OPPO*/
 /* jingchun.wang@Onlinerd.Driver, 2013/12/27  Add for auto adapt current by software. */
 static int soft_aicl(struct qpnp_chg_chip *chip)

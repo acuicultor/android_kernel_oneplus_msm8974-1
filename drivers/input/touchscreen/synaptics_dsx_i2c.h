@@ -267,6 +267,11 @@ struct synaptics_rmi4_data {
 	unsigned char bcontinue;
 	struct workqueue_struct *syna_pm_wq;
 	struct work_struct syna_pm_work;
+	struct wakeup_source syna_isr_ws;
+	spinlock_t isr_lock;
+	bool i2c_awake;
+	struct completion i2c_resume;
+	u64 last_gesture_time;
 };
 
 enum exp_fn {

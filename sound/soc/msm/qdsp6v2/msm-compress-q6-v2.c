@@ -171,6 +171,8 @@ struct msm_compr_dec_params {
 	struct snd_dec_ddp ddp_params;
 };
 
+static struct wakeup_source msm_compr_ws;
+
 static int msm_compr_set_volume(struct snd_compr_stream *cstream,
 				uint32_t volume_l, uint32_t volume_r)
 {
@@ -877,6 +879,9 @@ static int msm_compr_open(struct snd_compr_stream *cstream)
 		pr_err("%s: Unsupported stream type", __func__);
 	}
 
+	wakeup_source_init(&msm_compr_ws, "msm_compress");
+	__pm_stay_awake(&msm_compr_ws);
+
 	return 0;
 }
 
@@ -972,6 +977,8 @@ static int msm_compr_free(struct snd_compr_stream *cstream)
 	kfree(pdata->audio_effects[soc_prtd->dai_link->be_id]);
 	kfree(pdata->dec_params[soc_prtd->dai_link->be_id]);
 	kfree(prtd);
+
+	wakeup_source_trash(&msm_compr_ws);
 
 	return 0;
 }
