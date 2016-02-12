@@ -2,10 +2,7 @@
  * drivers/cpufreq/cpufreq_barry_allen.c
  *
  * Copyright (C) 2010 Google, Inc.
- * Copyright (C) 2015 Javier Sayago <admin@lonasdigital.com>
- *
- * Barry_Allen Version 1.0
- * Last Update >> 13-06-2015
+ * opyright (C) 2015 Javier Sayago <admin@lonasdigital.com>
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -39,8 +36,6 @@
 #include <trace/events/cpufreq_barry_allen.h>
 
 static int active_count;
-
-static bool ba_locked = false;
 
 struct cpufreq_barry_allen_cpuinfo {
 	struct timer_list cpu_timer;
@@ -358,7 +353,6 @@ static u64 update_load(int cpu)
 	return now;
 }
 
-#define MAX_LOCAL_LOAD 100
 static void cpufreq_barry_allen_timer(unsigned long data)
 {
 	u64 now;
@@ -393,13 +387,12 @@ static void cpufreq_barry_allen_timer(unsigned long data)
 
 	do_div(cputime_speedadj, delta_time);
 	loadadjfreq = (unsigned int)cputime_speedadj * 100;
-	cpu_load = loadadjfreq / pcpu->policy->cur;
+	cpu_load = loadadjfreq / pcpu->target_freq;
 	pcpu->prev_load = cpu_load;
 	boosted = boost_val || now < boostpulse_endtime;
 
 	if (cpu_load >= go_hispeed_load || boosted) {
-		if (pcpu->policy->cur < hispeed_freq &&
-		    cpu_load <= MAX_LOCAL_LOAD) {
+		if (pcpu->target_freq < hispeed_freq) {
 			new_freq = hispeed_freq;
 		} else {
 			new_freq = choose_freq(pcpu, loadadjfreq);
@@ -434,16 +427,17 @@ static void cpufreq_barry_allen_timer(unsigned long data)
 		}
 	}
 
-	if (cpu_load <= MAX_LOCAL_LOAD &&
-	    pcpu->policy->cur >= hispeed_freq &&
-	    new_freq > pcpu->policy->cur &&
+	if (pcpu->target_freq >= hispeed_freq &&
+	    new_freq > pcpu->target_freq &&
 	    now - pcpu->hispeed_validate_time <
-	    freq_to_above_hispeed_delay(pcpu->policy->cur)) {
+	    freq_to_above_hispeed_delay(pcpu->target_freq)) {
 		trace_cpufreq_barry_allen_notyet(
 			data, cpu_load, pcpu->target_freq,
 			pcpu->policy->cur, new_freq);
 		goto rearm;
 	}
+
+	pcpu->hispeed_validate_time = now;
 
 	if (cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
 					   new_freq, CPUFREQ_RELATION_L,
@@ -620,7 +614,6 @@ static int cpufreq_barry_allen_speedchange_task(void *data)
 		for_each_cpu(cpu, &tmp_mask) {
 			unsigned int j;
 			unsigned int max_freq = 0;
-			struct cpufreq_barry_allen_cpuinfo *pjcpu;
 
 			pcpu = &per_cpu(cpuinfo, cpu);
 			if (!down_read_trylock(&pcpu->enable_sem))
@@ -631,23 +624,17 @@ static int cpufreq_barry_allen_speedchange_task(void *data)
 			}
 
 			for_each_cpu(j, pcpu->policy->cpus) {
-				pjcpu = &per_cpu(cpuinfo, j);
+				struct cpufreq_barry_allen_cpuinfo *pjcpu =
+					&per_cpu(cpuinfo, j);
 
 				if (pjcpu->target_freq > max_freq)
 					max_freq = pjcpu->target_freq;
 			}
 
-			if (max_freq != pcpu->policy->cur) {
-				u64 now;
+			if (max_freq != pcpu->policy->cur)
 				__cpufreq_driver_target(pcpu->policy,
 							max_freq,
 							CPUFREQ_RELATION_H);
-				now = ktime_to_us(ktime_get());
-				for_each_cpu(j, pcpu->policy->cpus) {
-					pjcpu = &per_cpu(cpuinfo, j);
-					pjcpu->hispeed_validate_time = now;
-				}
-			}
 			trace_cpufreq_barry_allen_setspeed(cpu,
 						     pcpu->target_freq,
 						     pcpu->policy->cur);
@@ -704,7 +691,7 @@ static int cpufreq_barry_allen_notifier(
 	int cpu;
 	unsigned long flags;
 
-	if (val == CPUFREQ_PRECHANGE) {
+	if (val == CPUFREQ_POSTCHANGE) {
 		pcpu = &per_cpu(cpuinfo, freq->cpu);
 		if (!down_read_trylock(&pcpu->enable_sem))
 			return 0;
@@ -798,7 +785,7 @@ static ssize_t show_target_loads(
 		ret += sprintf(buf + ret, "%u%s", target_loads[i],
 			       i & 0x1 ? ":" : " ");
 
-	sprintf(buf + ret - 1, "\n");
+	ret += sprintf(buf + -ret, "\n");
 	spin_unlock_irqrestore(&target_loads_lock, flags);
 	return ret;
 }
@@ -810,9 +797,6 @@ static ssize_t store_target_loads(
 	int ntokens;
 	unsigned int *new_target_loads = NULL;
 	unsigned long flags;
-
-	if (ba_locked)
-		return count;
 
 	new_target_loads = get_tokenized_data(buf, &ntokens);
 	if (IS_ERR(new_target_loads))
@@ -844,7 +828,7 @@ static ssize_t show_above_hispeed_delay(
 		ret += sprintf(buf + ret, "%u%s", above_hispeed_delay[i],
 			       i & 0x1 ? ":" : " ");
 
-	sprintf(buf + ret - 1, "\n");
+	ret += sprintf(buf + -ret, "\n");
 	spin_unlock_irqrestore(&above_hispeed_delay_lock, flags);
 	return ret;
 }
@@ -888,9 +872,6 @@ static ssize_t store_hispeed_freq(struct kobject *kobj,
 	int ret;
 	long unsigned int val;
 
-	if (ba_locked)
-		return count;
-
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -913,9 +894,6 @@ static ssize_t store_sampling_down_factor(struct kobject *kobj,
 {
 	int ret;
 	long unsigned int val;
-
-	if (ba_locked)
-		return count;
 
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
@@ -940,9 +918,6 @@ static ssize_t store_go_hispeed_load(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
-	if (ba_locked)
-		return count;
-
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -965,9 +940,6 @@ static ssize_t store_min_sample_time(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
-	if (ba_locked)
-		return count;
-
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -988,21 +960,12 @@ static ssize_t store_timer_rate(struct kobject *kobj,
 			struct attribute *attr, const char *buf, size_t count)
 {
 	int ret;
-	unsigned long val, val_round;
-
-	if (ba_locked)
-		return count;
+	unsigned long val;
 
 	ret = strict_strtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
-
-	val_round = jiffies_to_usecs(usecs_to_jiffies(val));
-	if (val != val_round)
-		pr_warn("timer_rate not aligned to jiffy. Rounded up to %lu\n",
-				val_round);
-
-	timer_rate = val_round;
+	timer_rate = val;
 	return count;
 }
 
@@ -1022,9 +985,6 @@ static ssize_t store_timer_slack(
 	int ret;
 	unsigned long val;
 
-	if (ba_locked)
-		return count;
-
 	ret = kstrtol(buf, 10, &val);
 	if (ret < 0)
 		return ret;
@@ -1032,37 +992,6 @@ static ssize_t store_timer_slack(
 	timer_slack_val = val;
 	return count;
 }
-
-static ssize_t show_ba_locked(struct kobject *kobj,
-			struct attribute *attr, char *buf)
-{
-	if (ba_locked)
-		return snprintf(buf, PAGE_SIZE, "1\n");
-	
-	return snprintf(buf, PAGE_SIZE, "0\n");
-}
-
-static ssize_t store_ba_locked(
-	struct kobject *kobj, struct attribute *attr, const char *buf,
-	size_t count)
-{
-	int ret;
-	unsigned long val;
-
-	ret = kstrtol(buf, 10, &val);
-	if (ret < 0)
-		return ret;
-
-	if (val == 1)
-		ba_locked = true;
-	else
-		ba_locked = false;
-	
-	return count;
-}
-
-static struct global_attr ba_locked_attr = __ATTR(ba_locked, 0644,
-		show_ba_locked, store_ba_locked);
 
 define_one_global_rw(timer_slack);
 
@@ -1077,9 +1006,6 @@ static ssize_t store_boost(struct kobject *kobj, struct attribute *attr,
 {
 	int ret;
 	unsigned long val;
-
-	if (ba_locked)
-		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1105,9 +1031,6 @@ static ssize_t store_boostpulse(struct kobject *kobj, struct attribute *attr,
 {
 	int ret;
 	unsigned long val;
-
-	if (ba_locked)
-		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1136,9 +1059,6 @@ static ssize_t store_boostpulse_duration(
 	int ret;
 	unsigned long val;
 
-	if (ba_locked)
-		return count;
-
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -1160,9 +1080,6 @@ static ssize_t store_io_is_busy(struct kobject *kobj,
 {
 	int ret;
 	unsigned long val;
-
-	if (ba_locked)
-		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1186,9 +1103,6 @@ static ssize_t store_sync_freq(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
-	if (ba_locked)
-		return count;
-
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -1210,9 +1124,6 @@ static ssize_t store_up_threshold_any_cpu_load(struct kobject *kobj,
 {
 	int ret;
 	unsigned long val;
-
-	if (ba_locked)
-		return count;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
@@ -1238,9 +1149,6 @@ static ssize_t store_up_threshold_any_cpu_freq(struct kobject *kobj,
 	int ret;
 	unsigned long val;
 
-	if (ba_locked)
-		return count;
-
 	ret = kstrtoul(buf, 0, &val);
 	if (ret < 0)
 		return ret;
@@ -1254,7 +1162,6 @@ static struct global_attr up_threshold_any_cpu_freq_attr =
 				store_up_threshold_any_cpu_freq);
 
 static struct attribute *barry_allen_attributes[] = {
-	&ba_locked_attr.attr,
 	&target_loads_attr.attr,
 	&above_hispeed_delay_attr.attr,
 	&hispeed_freq_attr.attr,
