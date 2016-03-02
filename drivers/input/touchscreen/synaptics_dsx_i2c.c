@@ -776,226 +776,7 @@ static int synaptics_rmi4_proc_flashlight_write(struct file *filp, const char __
 	enable = (buf[0] == '0') ? 0 : 1;
 
 	atomic_set(&syna_rmi4_data->flashlight_enable, enable);
-
-	return len;
-}
-
-static int synaptics_rmi4_proc_sweep_wake_read(char *page, char **start, off_t off,
-		int count, int *eof, void *data)
-{
-	return sprintf(page, "%d\n", atomic_read(&syna_rmi4_data->sweep_wake_enable));
-}
-
-static int synaptics_rmi4_proc_sweep_wake_write(struct file *filp, const char __user *buff,
-		unsigned long len, void *data)
-{
-	int enable;
-	char buf[2];
-
-	if (len > 2)
-		return 0;
-
-	if (copy_from_user(buf, buff, len)) {
-		print_ts(TS_DEBUG, KERN_ERR "Read proc input error.\n");
-		return -EFAULT;
-	}
-
-	enable = (buf[0] == '0') ? 0 : 1;
-
-	atomic_set(&syna_rmi4_data->sweep_wake_enable, enable);
-
-	return len;
-}
-
-//smartcover proc read function
-static int synaptics_rmi4_proc_smartcover_read(char *page, char **start, off_t off,
-		int count, int *eof, void *data) {
-	int len = 0;
-	unsigned int enable;
-
-	enable = (syna_rmi4_data->smartcover_enable) ? 1 : 0;
-
-	len = sprintf(page, "%d\n", enable);
-
-	return len ;
-}
-
-//smartcover proc write function
-static int synaptics_rmi4_open_smartcover(void)
-{
-	int retval;
-	unsigned char val[10];
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_SMARTCOVER_EXT, val, 1);
-	val[0] = 1;
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_SMARTCOVER_EXT, val, 1);
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_GLOVE_FLAG, val, 1);
-	val[0] |= 0x01;
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_GLOVE_FLAG, val, 1);
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_F12_2D_CTRL10, val, 7);
-	val[6] &= ~(0x01);
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_F12_2D_CTRL10, val, 7);
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_F54_ANALOG_CTRL113, val, 1);
-	val[0] &= ~(0x01 << 1);
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_F54_ANALOG_CTRL113, val, 1);
-
-	val[0] = 0x04;
-	synaptics_rmi4_i2c_write(syna_rmi4_data, F54_CMD_BASE_ADDR, val, 1);
-	wait_test_cmd_finished();
-	printk(KERN_ERR "open smartcover\n");
-	return retval;
-}
-
-static int synaptics_rmi4_close_smartcover(void)
-{
-	int retval;
-	unsigned char val[10];
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_SMARTCOVER_EXT, val, 1);
-	val[0] = 0;
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_SMARTCOVER_EXT, val, 1);
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_GLOVE_FLAG, val, 1);
-	val[0] &= ~(0x01);
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_GLOVE_FLAG, val, 1);
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_F12_2D_CTRL10, val, 7);
-	val[6] |= 0x01;
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_F12_2D_CTRL10, val, 7);
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data, SYNA_ADDR_F54_ANALOG_CTRL113, val, 1);
-	val[0] |= 0x01 << 1;
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_F54_ANALOG_CTRL113, val, 1);
-
-	val[0] = 0x04;
-	synaptics_rmi4_i2c_write(syna_rmi4_data, F54_CMD_BASE_ADDR, val, 1);
-	wait_test_cmd_finished();
-	printk(KERN_ERR "close smartcover\n");
-	return retval;
-}
-
-//smartcover proc write function
-static int synaptics_rmi4_proc_smartcover_write(struct file *filp, const char __user *buff,
-		unsigned long len, void *data) {
-	int retval;
-	unsigned char bak;
-	unsigned int enable;
-	char buf[2];
-
-	if (len > 2)
-		return 0;
-
-	if (copy_from_user(buf, buff, len)) {
-		print_ts(TS_DEBUG, KERN_ERR "Read proc input error.\n");
-		return -EFAULT;
-	}
-
-	enable = (buf[0] == '0') ? 0 : 1;
-	bak = syna_rmi4_data->smartcover_enable;
-	syna_rmi4_data->smartcover_enable &= 0x00;
-	if (enable)
-		syna_rmi4_data->smartcover_enable |= 0x01;
-	if (bak == syna_rmi4_data->smartcover_enable)
-		return len;
-
-	print_ts(TS_DEBUG, KERN_ERR "smartcover enable=0x%x\n", syna_rmi4_data->smartcover_enable);
-
-	if (enable) {
-		retval = synaptics_rmi4_open_smartcover();
-	} else {
-		retval = synaptics_rmi4_close_smartcover();
-	}
-
-	return len;
-}
-
-//glove proc read function
-static int synaptics_rmi4_proc_glove_read(char *page, char **start, off_t off,
-		int count, int *eof, void *data)
-{
-	int len = 0;
-	unsigned int enable;
-
-	enable = (syna_rmi4_data->glove_enable)?1:0;
-
-	len = sprintf(page, "%d\n", enable);
-
-	return len;
-}
-
-//glove proc write function
-static int synaptics_rmi4_proc_glove_write(struct file *filp, const char __user *buff,
-		unsigned long len, void *data)
-{
-	int retval;
-	unsigned char val[1];
-	unsigned char bak;
-	unsigned int enable;
-	char buf[2];
-
-	if (len > 2)
-		return 0;
-
-	if (copy_from_user(buf, buff, len)) {
-		print_ts(TS_DEBUG, KERN_ERR "Read proc input error.\n");
-		return -EFAULT;
-	}
-
-	enable = (buf[0] == '0') ? 0 : 1;
-	bak = syna_rmi4_data->glove_enable;
-	syna_rmi4_data->glove_enable &= 0x00;
-	if (enable)
-		syna_rmi4_data->glove_enable |= 0x01;
-	if (bak == syna_rmi4_data->glove_enable)
-		return len;
-
-	print_ts(TS_DEBUG, KERN_ERR "glove enable=0x%x\n", syna_rmi4_data->glove_enable);
-
-	retval = synaptics_rmi4_i2c_read(syna_rmi4_data,SYNA_ADDR_GLOVE_FLAG,val,sizeof(val));
-
-	val[0] = syna_rmi4_data->glove_enable & 0xff;
-	retval = synaptics_rmi4_i2c_write(syna_rmi4_data,SYNA_ADDR_GLOVE_FLAG,val,sizeof(val));
-
-	return (retval == sizeof(val)) ? len : 0;
-}
-
-//pdoze proc read function
-static int synaptics_rmi4_proc_pdoze_read(char *page, char **start, off_t off,
-		int count, int *eof, void *data) {
-	int len = 0;
-	unsigned int enable;
-
-	enable = (syna_rmi4_data->pdoze_enable)?1:0;
-
-	len = sprintf(page, "%d\n", enable);
-
-	return len;
-}
-
-//pdoze proc write function
-static int synaptics_rmi4_proc_pdoze_write( struct file *filp, const char __user *buff,
-		unsigned long len, void *data ) {
-	unsigned int enable;
-	char buf[2];
-
-	if (len > 2)
-		return 0;
-
-	if (copy_from_user(buf, buff, len)) {
-		print_ts(TS_DEBUG, KERN_ERR "Read proc input error.\n");
-		return -EFAULT;
-	}
-
-	enable = (buf[0] == '0') ? 0 : 1;
-	if (enable == syna_rmi4_data->pdoze_enable)
-		return len;
-
-	syna_rmi4_data->pdoze_enable = enable;
-
-	print_ts(TS_DEBUG, KERN_ERR "[syna]:pdoze enable=0x%x\n", syna_rmi4_data->pdoze_enable);
+	synaptics_update_gesture_status(syna_rmi4_data);
 
 	return len;
 }
@@ -1069,39 +850,6 @@ static int synaptics_rmi4_init_touchpanel_proc(void)
 	if (proc_entry) {
 		proc_entry->write_proc = synaptics_rmi4_proc_flashlight_write;
 		proc_entry->read_proc = synaptics_rmi4_proc_flashlight_read;
-	}
-
-	// sweep wake
-	proc_entry = create_proc_entry("sweep_wake_enable", 0664, procdir);
-	if (proc_entry) {
-		proc_entry->write_proc = synaptics_rmi4_proc_sweep_wake_write;
-		proc_entry->read_proc = synaptics_rmi4_proc_sweep_wake_read;
-	}
-
-	//for pdoze enable/disable interface
-	proc_entry = create_proc_entry("pdoze_mode_enable", 0664, procdir);
-	if (proc_entry) {
-		proc_entry->write_proc = synaptics_rmi4_proc_pdoze_write;
-		proc_entry->read_proc = synaptics_rmi4_proc_pdoze_read;
-	}
-
-	//for smartcover
-	proc_entry = create_proc_entry("smartcover_mode_enable", 0664, procdir);
-	if (proc_entry) {
-		proc_entry->write_proc = synaptics_rmi4_proc_smartcover_write;
-		proc_entry->read_proc = synaptics_rmi4_proc_smartcover_read;
-	}
-
-	//for pdoze status
-	proc_entry = create_proc_entry("pdozedetect", 0444, procdir);
-	if (proc_entry) {
-		proc_entry->read_proc = synaptics_rmi4_pdoze_read;
-	}
-
-	//for support tp2.0
-	proc_entry = create_proc_entry("coordinate", 0444, procdir);
-	if (proc_entry) {
-		proc_entry->read_proc = synaptics_rmi4_crood_read;
 	}
 
 	proc_entry = create_proc_entry("keypad_enable", 0664, procdir);
@@ -1235,11 +983,6 @@ static unsigned char synaptics_rmi4_update_gesture2(unsigned char *gesture,
 				(gestureext[24] == 0x48) ? Down2UpSwip      :
 				(gestureext[24] == 0x80) ? DouSwip          :
 				UnknownGesture;
-			if (gesturemode == Left2RightSwip ||
-					gesturemode == Right2LeftSwip) {
-				if (atomic_read(&syna_rmi4_data->sweep_wake_enable))
-					keyvalue = KEY_SWEEP_WAKE;
-			}
 			if (gesturemode == DouSwip ||
 					gesturemode == Down2UpSwip ||
 					gesturemode == Up2DownSwip) {
@@ -2167,7 +1910,6 @@ static void synaptics_rmi4_set_params(struct synaptics_rmi4_data *rmi4_data)
 	set_bit(KEY_GESTURE_CIRCLE, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_SWIPE_DOWN, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_V, rmi4_data->input_dev->keybit);
-	set_bit(KEY_SWEEP_WAKE, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_LTR, rmi4_data->input_dev->keybit);
 	set_bit(KEY_GESTURE_GTR, rmi4_data->input_dev->keybit);
 	synaptics_ts_init_virtual_key(rmi4_data);
@@ -2224,7 +1966,6 @@ static int synaptics_rmi4_set_input_dev(struct synaptics_rmi4_data *rmi4_data)
 	atomic_set(&rmi4_data->camera_enable, 0);
 	atomic_set(&rmi4_data->music_enable, 0);
 	atomic_set(&rmi4_data->flashlight_enable, 0);
-	atomic_set(&rmi4_data->sweep_wake_enable, 0);
 
 	set_bit(INPUT_PROP_DIRECT, rmi4_data->input_dev->propbit);
 
@@ -2604,29 +2345,15 @@ static void synaptics_rmi4_sensor_wake(struct synaptics_rmi4_data *rmi4_data)
  */
 static void synaptics_rmi4_suspend(struct synaptics_rmi4_data *rmi4_data)
 {
-	struct synaptics_rmi4_data *rmi4_data =
-			container_of(work, struct synaptics_rmi4_data, init_work);
-	int retval;
-	unsigned char val = 1;
+	synaptics_rmi4_irq_enable(rmi4_data, false);
+	synaptics_rmi4_free_fingers(rmi4_data);
 
-	if (rmi4_data->smartcover_enable)
-		synaptics_rmi4_open_smartcover();
-
-	if (rmi4_data->glove_enable)
-		synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_GLOVE_FLAG,
-				&val, sizeof(val));
-
-	if (atomic_read(&rmi4_data->syna_use_gesture) || rmi4_data->pdoze_enable) {
-		synaptics_enable_gesture(rmi4_data,false);
-		synaptics_enable_pdoze(rmi4_data,false);
-		synaptics_enable_irqwake(rmi4_data,false);
-		atomic_set(&rmi4_data->syna_use_gesture,
-			atomic_read(&rmi4_data->double_tap_enable) ||
-			atomic_read(&rmi4_data->camera_enable) ||
-			atomic_read(&rmi4_data->music_enable) ||
-			atomic_read(&rmi4_data->flashlight_enable) ? 1 : 0 ||
-			atomic_read(&rmi4_data->sweep_wake_enable) ? 1 : 0);
-		goto out;
+	if (atomic_read(&rmi4_data->syna_use_gesture)) {
+		synaptics_enable_gesture(rmi4_data, true);
+		synaptics_enable_irqwake(rmi4_data, true);
+		synaptics_rmi4_irq_enable(rmi4_data, true);
+	} else {
+		synaptics_rmi4_sensor_sleep(rmi4_data);
 	}
 
 	atomic_set(&rmi4_data->ts_awake, 0);
@@ -2973,156 +2700,6 @@ static int __devexit synaptics_rmi4_remove(struct i2c_client *client)
 
 	return 0;
 }
-
-#ifdef CONFIG_PM
-/**
- * synaptics_rmi4_sensor_sleep()
- *
- * Called by synaptics_rmi4_early_suspend() and synaptics_rmi4_suspend().
- *
- * This function stops finger data acquisition and puts the sensor to sleep.
- */
-static void synaptics_rmi4_sensor_sleep(struct synaptics_rmi4_data *rmi4_data)
-{
-	int retval;
-	unsigned char device_ctrl;
-
-	retval = synaptics_rmi4_i2c_read(rmi4_data,
-			rmi4_data->f01_ctrl_base_addr,
-			&device_ctrl,
-			sizeof(device_ctrl));
-	if (retval < 0) {
-		dev_err(&(rmi4_data->input_dev->dev),
-				"%s: Failed to enter sleep mode\n",
-				__func__);
-		rmi4_data->sensor_sleep = false;
-		return;
-	}
-
-	device_ctrl = (device_ctrl & ~MASK_3BIT);
-	device_ctrl = (device_ctrl | NO_SLEEP_OFF | SENSOR_SLEEP);
-
-	retval = synaptics_rmi4_i2c_write(rmi4_data,
-			rmi4_data->f01_ctrl_base_addr,
-			&device_ctrl,
-			sizeof(device_ctrl));
-	if (retval < 0) {
-		dev_err(&(rmi4_data->input_dev->dev),
-				"%s: Failed to enter sleep mode\n",
-				__func__);
-		rmi4_data->sensor_sleep = false;
-		return;
-	} else {
-		rmi4_data->sensor_sleep = true;
-	}
-
-	return;
-}
-
-/**
- * synaptics_rmi4_suspend()
- *
- * Called by the kernel during the suspend phase when the system
- * enters suspend.
- *
- * This function stops finger data acquisition and puts the sensor to
- * sleep (if not already done so during the early suspend phase),
- * disables the interrupt, and turns off the power to the sensor.
- */
-static int synaptics_rmi4_suspend(struct device *dev)
-{
-	struct synaptics_rmi4_data *rmi4_data = dev_get_drvdata(dev);
-	unsigned char val = 0;
-
-	if (rmi4_data->suspended) {
-		dev_info(dev, "Already in suspend state\n");
-		return 0;
-	}
-
-	if (rmi4_data->stay_awake) {
-		rmi4_data->staying_awake = true;
-		goto out;
-	} else
-		rmi4_data->staying_awake = false;
-
-	cancel_work_sync(&rmi4_data->init_work);
-
-	if (rmi4_data->smartcover_enable)
-		synaptics_rmi4_close_smartcover();
-
-	if (rmi4_data->glove_enable)
-		synaptics_rmi4_i2c_write(syna_rmi4_data, SYNA_ADDR_GLOVE_FLAG,
-				&val, sizeof(val));
-
-	atomic_set(&rmi4_data->syna_use_gesture,
-			atomic_read(&rmi4_data->double_tap_enable) ||
-			atomic_read(&rmi4_data->camera_enable) ||
-			atomic_read(&rmi4_data->music_enable) ||
-			atomic_read(&rmi4_data->flashlight_enable) ||
-			atomic_read(&rmi4_data->sweep_wake_enable) ? 1 : 0);
-
-	if (atomic_read(&rmi4_data->syna_use_gesture) || rmi4_data->pdoze_enable) {
-		synaptics_enable_gesture(rmi4_data,true);
-		synaptics_enable_pdoze(rmi4_data,true);
-		synaptics_enable_irqwake(rmi4_data,true);
-		goto out;
-	}
-
-	if (rmi4_data->staying_awake) {
-		goto out;
-	}
-
-	if (!rmi4_data->sensor_sleep) {
-		rmi4_data->touch_stopped = true;
-
-		synaptics_rmi4_irq_enable(rmi4_data, false);
-		synaptics_rmi4_sensor_sleep(rmi4_data);
-		synaptics_rmi4_free_fingers(rmi4_data);
-	}
-
-out:
-	mutex_lock(&suspended_mutex);
-	rmi4_data->suspended = true;
-	mutex_unlock(&suspended_mutex);
-
-	return 0;
-}
-
-/**
- * synaptics_rmi4_resume()
- *
- *truct synaptics_rmi4_data *rmi4_data = Called by the kernel during the resume phase when the system
- * wakes up from suspend.
- *
- * This function turns on the power to the sensor, wakes the sensor
- * from sleep, enables the interrupt, and starts finger data
- * acquisition.
- */
-static int synaptics_rmi4_resume(struct device *dev)
-{
-	struct synaptics_rmi4_data *rmi4_data = dev_get_drvdata(dev);
-
-	if (rmi4_data->staying_awake) {
-		return 0;
-	}
-
-	flush_workqueue(exp_data.workqueue);
-	if (!rmi4_data->suspended) {
-		dev_info(dev, "Already in awake state\n");
-		return 0;
-	}
-
-	queue_work(exp_data.workqueue, &rmi4_data->init_work);
-	return 0;
-}
-
-#ifndef CONFIG_FB
-static const struct dev_pm_ops synaptics_rmi4_dev_pm_ops = {
-	.suspend = synaptics_rmi4_suspend,
-	.resume  = synaptics_rmi4_resume,
-};
-#endif
-#endif
 
 static const struct i2c_device_id synaptics_rmi4_id_table[] = {
 	{"synaptics-rmi-ts", 0},
