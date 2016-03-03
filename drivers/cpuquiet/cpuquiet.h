@@ -19,7 +19,7 @@
 #ifndef __DRIVER_CPUQUIET_H
 #define __DRIVER_CPUQUIET_H
 
-#include <linux/device.h>
+#include <linux/sysdev.h>
 
 extern struct mutex cpuquiet_lock;
 extern struct cpuquiet_governor *cpuquiet_curr_governor;
@@ -29,7 +29,7 @@ struct cpuquiet_governor *cpuquiet_find_governor(const char *str);
 int cpuquiet_switch_governor(struct cpuquiet_governor *gov);
 struct cpuquiet_governor *cpuquiet_get_first_governor(void);
 struct cpuquiet_driver *cpuquiet_get_driver(void);
-void cpuquiet_add_dev(struct device *dev, unsigned int cpu);
+void cpuquiet_add_dev(struct device *cpu_dev, unsigned int cpu);
 void cpuquiet_remove_dev(unsigned int cpu);
 int cpuquiet_cpu_kobject_init(struct kobject *kobj, struct kobj_type *type,
 				char *name, int cpu);

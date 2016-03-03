@@ -25,16 +25,14 @@ static DEFINE_MUTEX(userspace_mutex);
 
 static int governor_set(unsigned int cpu, bool active)
 {
-	int err;
-
 	mutex_lock(&userspace_mutex);
 	if (active)
-		err = cpuquiet_wake_cpu(cpu, true);
+		cpuquiet_wake_cpu(cpu);
 	else
-		err = cpuquiet_quiesence_cpu(cpu, true);
+		cpuquiet_quiesence_cpu(cpu);
 	mutex_unlock(&userspace_mutex);
 
-	return err;
+	return 0;
 }
 
 struct cpuquiet_governor userspace_governor = {
@@ -54,7 +52,7 @@ static void __exit exit_usermode(void)
 }
 
 MODULE_LICENSE("GPL");
-#ifdef CONFIG_CPU_QUIET_DEFAULT_GOV_USERSPACE
+#ifdef CONFIG_CPUQUIET_DEFAULT_GOV_USERSPACE
 fs_initcall(init_usermode);
 #else
 module_init(init_usermode);

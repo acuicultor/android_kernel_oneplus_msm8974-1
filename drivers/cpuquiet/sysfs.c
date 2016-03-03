@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013 NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2012 NVIDIA CORPORATION.  All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,6 +20,7 @@
 #include <linux/sysfs.h>
 #include <linux/slab.h>
 #include <linux/cpuquiet.h>
+#include <linux/cpu.h>
 
 #include "cpuquiet.h"
 
@@ -56,7 +57,7 @@ static ssize_t show_current_governor(char *buf)
 
 static ssize_t store_current_governor(const char *buf, size_t count)
 {
-	char name[CPU_QUIET_NAME_LEN];
+	char name[CPUQUIET_NAME_LEN];
 	struct cpuquiet_governor *gov;
 	int len = count, ret = -EINVAL;
 
@@ -70,10 +71,10 @@ static ssize_t store_current_governor(const char *buf, size_t count)
 
 	mutex_lock(&cpuquiet_lock);
 	gov = cpuquiet_find_governor(name);
+	mutex_unlock(&cpuquiet_lock);
 
 	if (gov)
 		ret = cpuquiet_switch_governor(gov);
-	mutex_unlock(&cpuquiet_lock);
 
 	if (ret)
 		return ret;
@@ -197,7 +198,6 @@ int cpuquiet_add_interface(struct device *dev)
 	return err;
 }
 
-
 struct cpuquiet_attr {
 	struct attribute attr;
 	ssize_t (*show)(unsigned int, char *);
@@ -270,7 +270,7 @@ static struct kobj_type ktype_cpuquiet = {
 	.default_attrs = cpuquiet_default_cpu_attrs,
 };
 
-void cpuquiet_add_dev(struct device *device, unsigned int cpu)
+void cpuquiet_add_dev(struct device *cpu_dev, unsigned int cpu)
 {
 	struct cpuquiet_dev *dev;
 	int err;
@@ -279,7 +279,7 @@ void cpuquiet_add_dev(struct device *device, unsigned int cpu)
 	dev->cpu = cpu;
 	cpuquiet_cpu_devices[cpu] = dev;
 	err = kobject_init_and_add(&dev->kobj, &ktype_cpuquiet,
-				&device->kobj, "cpuquiet");
+				&cpu_dev->kobj, "cpuquiet");
 	if (!err)
 		kobject_uevent(&dev->kobj, KOBJ_ADD);
 }

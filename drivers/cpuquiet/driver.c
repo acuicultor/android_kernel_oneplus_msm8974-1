@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2013 NVIDIA CORPORATION.  All rights reserved.
+ * Copyright (c) 2012 NVIDIA CORPORATION.  All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,9 +26,6 @@
 
 #include "cpuquiet.h"
 
-static struct cpuquiet_driver *cpuquiet_curr_driver;
-
-#ifdef CONFIG_CPU_QUIET_STATS
 struct cpuquiet_cpu_stat {
 	cputime64_t time_up_total;
 	u64 last_update;
@@ -36,12 +33,13 @@ struct cpuquiet_cpu_stat {
 	struct kobject cpu_kobject;
 };
 
-struct cpuquiet_cpu_stat *stats;
-
 struct cpu_attribute {
 	struct attribute attr;
 	enum { up_down_count, time_up_total } type;
 };
+
+static struct cpuquiet_driver *cpuquiet_curr_driver;
+struct cpuquiet_cpu_stat *stats;
 
 #define CPU_ATTRIBUTE(_name) \
 	static struct cpu_attribute _name ## _attr = {			\
@@ -64,13 +62,42 @@ static void stats_update(struct cpuquiet_cpu_stat *stat, bool up)
 	bool was_up = stat->up_down_count & 0x1;
 
 	if (was_up)
-		stat->time_up_total += cur_jiffies - stat->last_update;
+		stat->time_up_total = stat->time_up_total +
+			cur_jiffies - stat->last_update;
 
 	if (was_up != up)
 		stat->up_down_count++;
 
 	stat->last_update = cur_jiffies;
 }
+
+int cpuquiet_quiesence_cpu(unsigned int cpunumber)
+{
+	int err = -EPERM;
+
+	if (cpuquiet_curr_driver && cpuquiet_curr_driver->quiesence_cpu)
+		err = cpuquiet_curr_driver->quiesence_cpu(cpunumber);
+
+	if (!err)
+		stats_update(stats + cpunumber, 0);
+
+	return err;
+}
+EXPORT_SYMBOL(cpuquiet_quiesence_cpu);
+
+int cpuquiet_wake_cpu(unsigned int cpunumber)
+{
+	int err = -EPERM;
+
+	if (cpuquiet_curr_driver && cpuquiet_curr_driver->wake_cpu)
+		err = cpuquiet_curr_driver->wake_cpu(cpunumber);
+
+	if (!err)
+		stats_update(stats + cpunumber, 1);
+
+	return err;
+}
+EXPORT_SYMBOL(cpuquiet_wake_cpu);
 
 static ssize_t stats_sysfs_show(struct kobject *kobj,
 			struct attribute *attr, char *buf)
@@ -104,98 +131,31 @@ static struct kobj_type ktype_cpu_stats = {
 	.sysfs_ops = &stats_sysfs_ops,
 	.default_attrs = cpu_attributes,
 };
-#endif
-
-int cpuquiet_quiesence_cpu(unsigned int cpunumber, bool sync)
-{
-	int err = -EPERM;
-
-	if (cpuquiet_curr_driver && cpuquiet_curr_driver->quiesence_cpu)
-		err = cpuquiet_curr_driver->quiesence_cpu(cpunumber, sync);
-
-#ifdef CONFIG_CPU_QUIET_STATS
-	if (!err)
-		stats_update(stats + cpunumber, 0);
-#endif
-
-	return err;
-}
-EXPORT_SYMBOL(cpuquiet_quiesence_cpu);
-
-int cpuquiet_wake_cpu(unsigned int cpunumber, bool sync)
-{
-	int err = -EPERM;
-
-	if (cpuquiet_curr_driver && cpuquiet_curr_driver->wake_cpu)
-		err = cpuquiet_curr_driver->wake_cpu(cpunumber, sync);
-
-#ifdef CONFIG_CPU_QUIET_STATS
-	if (!err)
-		stats_update(stats + cpunumber, 1);
-#endif
-
-	return err;
-}
-EXPORT_SYMBOL(cpuquiet_wake_cpu);
-
-int cpuquiet_get_avg_hotplug_latency(void)
-{
-	if (cpuquiet_curr_driver)
-		return cpuquiet_curr_driver->avg_hotplug_latency_ms;
-	return 0;
-}
-
-int cpuquiet_get_cpus(bool use_max)
-{
-	if (!cpuquiet_curr_driver)
-		return -ENXIO;
-
-	if (use_max)
-		return cpuquiet_curr_driver->max_cpus;
-
-	return cpuquiet_curr_driver->min_cpus;
-}
-
-void cpuquiet_set_cpus(bool use_max, int cpus)
-{
-	if (!cpuquiet_curr_driver)
-		return;
-
-	if (use_max)
-		cpuquiet_curr_driver->max_cpus = cpus;
-	else
-		cpuquiet_curr_driver->min_cpus = cpus;
-}
 
 int cpuquiet_register_driver(struct cpuquiet_driver *drv)
 {
 	int err = -EBUSY;
 	unsigned int cpu;
-	struct device *dev;
-
+	u64 cur_jiffies;
+	struct device *cpu_dev;
+	
 	if (!drv)
 		return -EINVAL;
 
-#ifdef CONFIG_CPU_QUIET_STATS
 	stats = kzalloc(nr_cpu_ids * sizeof(*stats), GFP_KERNEL);
 	if (!stats)
 		return -ENOMEM;
-#endif
 
 	for_each_possible_cpu(cpu) {
-#ifdef CONFIG_CPU_QUIET_STATS
-		u64 cur_jiffies = get_jiffies_64();
+		cur_jiffies = get_jiffies_64();
 		stats[cpu].last_update = cur_jiffies;
 		if (cpu_online(cpu))
 			stats[cpu].up_down_count = 1;
-#endif
-		dev = get_cpu_device(cpu);
-		if (dev) {
-			cpuquiet_add_dev(dev, cpu);
-#ifdef CONFIG_CPU_QUIET_STATS
+		cpu_dev = get_cpu_device(cpu);
+		if (cpu_dev) {
+			cpuquiet_add_dev(cpu_dev, cpu);
 			cpuquiet_cpu_kobject_init(&stats[cpu].cpu_kobject,
 					&ktype_cpu_stats, "stats", cpu);
-#endif
 		}
 	}
 
@@ -203,7 +163,6 @@ int cpuquiet_register_driver(struct cpuquiet_driver *drv)
 	if (!cpuquiet_curr_driver) {
 		err = 0;
 		cpuquiet_curr_driver = drv;
-		cpuquiet_switch_governor(cpuquiet_get_first_governor());
 	}
 	mutex_unlock(&cpuquiet_lock);
 
@@ -226,16 +185,14 @@ void cpuquiet_unregister_driver(struct cpuquiet_driver *drv)
 		return;
 	}
 
-	mutex_lock(&cpuquiet_lock);
-
-	/* Stop current governor first */
+	/* stop current governor first */
 	cpuquiet_switch_governor(NULL);
+
+	mutex_lock(&cpuquiet_lock);
 	cpuquiet_curr_driver = NULL;
 
 	for_each_possible_cpu(cpu) {
-#ifdef CONFIG_CPU_QUIET_STATS
 		kobject_put(&stats[cpu].cpu_kobject);
-#endif
 		cpuquiet_remove_dev(cpu);
 	}
 
