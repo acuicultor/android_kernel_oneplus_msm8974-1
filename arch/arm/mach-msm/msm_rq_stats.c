@@ -285,14 +285,9 @@ EXPORT_SYMBOL(get_rq_info);
 
 static void def_work_fn(struct work_struct *work)
 {
-	int64_t diff;
 
 	if (!rq_info.hotplug_enabled)
 		return;
-
-	diff = ktime_to_ns(ktime_get()) - rq_info.def_start_time;
-	do_div(diff, 1000 * 1000);
-	rq_info.def_interval = (unsigned int) diff;
 
 	/* Notify polling threads on change of value */
 	sysfs_notify(rq_info.kobj, NULL, "def_timer_ms");
