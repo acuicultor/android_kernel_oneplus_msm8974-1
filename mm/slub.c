@@ -1876,7 +1876,7 @@ redo:
 static void unfreeze_partials(struct kmem_cache *s,
 		struct kmem_cache_cpu *c)
 {
-	struct kmem_cache_node *n = NULL, *n2 = NULL;
+	struct kmem_cache_node *n = NULL;
 	struct page *page, *discard_page = NULL;
 
 	while ((page = c->partial)) {
