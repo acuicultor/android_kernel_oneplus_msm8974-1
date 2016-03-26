@@ -16,7 +16,7 @@ DEFCONFIG="radioactive_defconfig"
 
 # Kernel Details
 BASE_RADIOACTIVE_VER="RADIOACTIVE"
-VER="_CAF_Marshmallow_V1.22"
+VER="_CAF_Marshmallow_V1.23"
 RADIOACTIVE_VER="$BASE_RADIOACTIVE_VER$VER"
 
 # Vars
