@@ -19,10 +19,13 @@
 
 #include <linux/mmc/card.h>
 #include <linux/mmc/host.h>
+#include <linux/sched.h>
 #include "queue.h"
 
 #define MMC_QUEUE_BOUNCESZ	65536
 
+
+#define MMC_REQ_SPECIAL_MASK	(REQ_DISCARD | REQ_FLUSH)
 
 /*
  * Based on benchmark tests the default num of requests to trigger the write
@@ -60,6 +63,11 @@ static int mmc_queue_thread(void *d)
 	struct request_queue *q = mq->queue;
 	struct mmc_card *card = mq->card;
 
+	struct sched_param scheduler_params = {0};
+	scheduler_params.sched_priority = 1;
+
+	sched_setscheduler(current, SCHED_FIFO, &scheduler_params);
+
 	current->flags |= PF_MEMALLOC;
 	if (card->host->wakeup_on_idle)
 		set_wake_up_idle(true);
@@ -68,6 +76,7 @@ static int mmc_queue_thread(void *d)
 	do {
 		struct mmc_queue_req *tmp;
 		struct request *req = NULL;
+		unsigned int cmd_flags = 0;
 
 		spin_lock_irq(q->queue_lock);
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -77,12 +86,13 @@ static int mmc_queue_thread(void *d)
 
 		if (req || mq->mqrq_prev->req) {
 			set_current_state(TASK_RUNNING);
+			cmd_flags = req ? req->cmd_flags : 0;
 			mq->issue_fn(mq, req);
 			if (test_bit(MMC_QUEUE_NEW_REQUEST, &mq->flags)) {
 				continue; /* fetch again */
 			} else if (test_bit(MMC_QUEUE_URGENT_REQUEST,
 					&mq->flags) && (mq->mqrq_cur->req &&
-					!(mq->mqrq_cur->req->cmd_flags &
+					!(cmd_flags &
 						MMC_REQ_NOREINSERT_MASK))) {
 				/*
 				 * clean current request when urgent request
@@ -97,7 +107,13 @@ static int mmc_queue_thread(void *d)
 			/*
 			 * Current request becomes previous request
 			 * and vice versa.
+			 * In case of special requests, current request
+			 * has been finished. Do not assign it to previous
+			 * request.
 			 */
+			if (cmd_flags & MMC_REQ_SPECIAL_MASK)
+				mq->mqrq_cur->req = NULL;
+
 			mq->mqrq_prev->brq.mrq.data = NULL;
 			mq->mqrq_prev->req = NULL;
 			tmp = mq->mqrq_prev;
